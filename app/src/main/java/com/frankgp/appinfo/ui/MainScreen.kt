@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.ImageView
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +58,29 @@ fun MainScreen(viewModel: MainViewModel) {
     val selectedAppTypeFilter by viewModel.selectedAppTypeFilter.collectAsState()
     val selectedApp by viewModel.selectedApp.collectAsState()
 
+    var pendingUninstallPackage by remember { mutableStateOf<String?>(null) }
+
+    val uninstallLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        val pkg = pendingUninstallPackage
+        if (pkg != null) {
+            val isStillInstalled = try {
+                context.packageManager.getPackageInfo(pkg, 0)
+                true
+            } catch (_: Exception) {
+                false
+            }
+            if (!isStillInstalled) {
+                Toast.makeText(context, "¡Aplicación desinstalada con éxito!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Desinstalación cancelada", Toast.LENGTH_SHORT).show()
+            }
+            pendingUninstallPackage = null
+        }
+        viewModel.loadApps()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,133 +97,141 @@ fun MainScreen(viewModel: MainViewModel) {
             )
         }
     ) { innerPadding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = isLoading,
+            onRefresh = { viewModel.loadApps() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.setSearchQuery(it) },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Buscar por nombre o package...") },
-                leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Limpiar")
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            // Filter Chips - App Type (All, User, System)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = selectedAppTypeFilter == AppTypeFilter.ALL,
-                    onClick = { viewModel.setAppTypeFilter(AppTypeFilter.ALL) },
-                    label = { Text("Todas") }
-                )
-                FilterChip(
-                    selected = selectedAppTypeFilter == AppTypeFilter.USER,
-                    onClick = { viewModel.setAppTypeFilter(AppTypeFilter.USER) },
-                    label = { Text("Usuario") }
-                )
-                FilterChip(
-                    selected = selectedAppTypeFilter == AppTypeFilter.SYSTEM,
-                    onClick = { viewModel.setAppTypeFilter(AppTypeFilter.SYSTEM) },
-                    label = { Text("Sistema") }
-                )
-            }
-
-            // Filter Chips - Language Type (All, Java, Native, Hybrid)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = selectedFilter == null,
-                    onClick = { viewModel.setFilter(null) },
-                    label = { Text("Todos") }
-                )
-                FilterChip(
-                    selected = selectedFilter == LanguageType.JAVA_KOTLIN,
-                    onClick = { viewModel.setFilter(LanguageType.JAVA_KOTLIN) },
-                    label = { Text("Java") }
-                )
-                FilterChip(
-                    selected = selectedFilter == LanguageType.NATIVE,
-                    onClick = { viewModel.setFilter(LanguageType.NATIVE) },
-                    label = { Text("Nativa") }
-                )
-                FilterChip(
-                    selected = selectedFilter == LanguageType.HYBRID,
-                    onClick = { viewModel.setFilter(LanguageType.HYBRID) },
-                    label = { Text("Híbrida") }
-                )
-            }
-
-            // App List or Loading
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .weight(1f)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center)
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { viewModel.setSearchQuery(it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Buscar por nombre o package...") },
+                    leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Limpiar")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Filter Chips - App Type (All, User, System)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedAppTypeFilter == AppTypeFilter.ALL,
+                        onClick = { viewModel.setAppTypeFilter(AppTypeFilter.ALL) },
+                        label = { Text("Todas") }
                     )
-                } else if (apps.isEmpty()) {
-                    Text(
-                        text = "No se encontraron aplicaciones",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.align(Alignment.Center)
+                    FilterChip(
+                        selected = selectedAppTypeFilter == AppTypeFilter.USER,
+                        onClick = { viewModel.setAppTypeFilter(AppTypeFilter.USER) },
+                        label = { Text("Usuario") }
                     )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(apps, key = { it.packageName }) { app ->
-                            SlidableAppItemCard(
-                                app = app,
-                                onClick = { viewModel.selectApp(app) },
-                                onOpen = {
-                                    val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                                    if (launchIntent != null) {
-                                        context.startActivity(launchIntent)
-                                    } else {
-                                        Toast.makeText(context, "Esta app no tiene actividad principal", Toast.LENGTH_SHORT).show()
+                    FilterChip(
+                        selected = selectedAppTypeFilter == AppTypeFilter.SYSTEM,
+                        onClick = { viewModel.setAppTypeFilter(AppTypeFilter.SYSTEM) },
+                        label = { Text("Sistema") }
+                    )
+                }
+
+                // Filter Chips - Language Type (All, Java, Native, Hybrid)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedFilter == null,
+                        onClick = { viewModel.setFilter(null) },
+                        label = { Text("Todos") }
+                    )
+                    FilterChip(
+                        selected = selectedFilter == LanguageType.JAVA_KOTLIN,
+                        onClick = { viewModel.setFilter(LanguageType.JAVA_KOTLIN) },
+                        label = { Text("Java") }
+                    )
+                    FilterChip(
+                        selected = selectedFilter == LanguageType.NATIVE,
+                        onClick = { viewModel.setFilter(LanguageType.NATIVE) },
+                        label = { Text("Nativa") }
+                    )
+                    FilterChip(
+                        selected = selectedFilter == LanguageType.HYBRID,
+                        onClick = { viewModel.setFilter(LanguageType.HYBRID) },
+                        label = { Text("Híbrida") }
+                    )
+                }
+
+                // App List or Loading
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                ) {
+                    if (apps.isEmpty() && !isLoading) {
+                        Text(
+                            text = "No se encontraron aplicaciones",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(apps, key = { it.packageName }) { app ->
+                                SlidableAppItemCard(
+                                    app = app,
+                                    onClick = { viewModel.selectApp(app) },
+                                    onOpen = {
+                                        val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                                        if (launchIntent != null) {
+                                            context.startActivity(launchIntent)
+                                        } else {
+                                            Toast.makeText(context, "Esta app no tiene actividad principal", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onSettings = {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.parse("package:${app.packageName}")
+                                        }
+                                        context.startActivity(intent)
+                                    },
+                                    onUninstall = {
+                                        if (app.isSystemApp) {
+                                            Toast.makeText(context, "No se pueden desinstalar aplicaciones del sistema", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            pendingUninstallPackage = app.packageName
+                                            val uri = Uri.fromParts("package", app.packageName, null)
+                                            val intent = Intent(Intent.ACTION_DELETE, uri)
+                                            uninstallLauncher.launch(intent)
+                                            Toast.makeText(context, "Abriendo desinstalador...", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
-                                },
-                                onSettings = {
-                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                        data = Uri.parse("package:${app.packageName}")
-                                    }
-                                    context.startActivity(intent)
-                                },
-                                onUninstall = {
-                                    val intent = Intent(Intent.ACTION_DELETE).apply {
-                                        data = Uri.parse("package:${app.packageName}")
-                                    }
-                                    context.startActivity(intent)
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -414,7 +448,7 @@ fun AppItemCard(app: AppInfo, onClick: () -> Unit) {
                             style = MaterialTheme.typography.labelSmall,
                             color = badgeColor,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                     if (app.framework != null) {
@@ -427,7 +461,7 @@ fun AppItemCard(app: AppInfo, onClick: () -> Unit) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
                             )
                         }
                     } else if (app.nativeLibraries.isNotEmpty()) {
