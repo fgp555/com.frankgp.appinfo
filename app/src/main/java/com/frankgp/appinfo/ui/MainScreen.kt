@@ -1,23 +1,40 @@
 package com.frankgp.appinfo.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.widget.ImageView
+import android.widget.Toast
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.frankgp.appinfo.data.AppInfo
@@ -25,10 +42,12 @@ import com.frankgp.appinfo.data.LanguageType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
     val apps by viewModel.filteredApps.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -81,13 +100,15 @@ fun MainScreen(viewModel: MainViewModel) {
 
             // Filter Chips - App Type (All, User, System)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
                     selected = selectedAppTypeFilter == AppTypeFilter.ALL,
                     onClick = { viewModel.setAppTypeFilter(AppTypeFilter.ALL) },
-                    label = { Text("Todas las apps") }
+                    label = { Text("Todas") }
                 )
                 FilterChip(
                     selected = selectedAppTypeFilter == AppTypeFilter.USER,
@@ -103,13 +124,15 @@ fun MainScreen(viewModel: MainViewModel) {
 
             // Filter Chips - Language Type (All, Java, Native, Hybrid)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
                     selected = selectedFilter == null,
                     onClick = { viewModel.setFilter(null) },
-                    label = { Text("Todos los lenguajes") }
+                    label = { Text("Todos") }
                 )
                 FilterChip(
                     selected = selectedFilter == LanguageType.JAVA_KOTLIN,
@@ -151,7 +174,30 @@ fun MainScreen(viewModel: MainViewModel) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(apps, key = { it.packageName }) { app ->
-                            AppItemCard(app = app, onClick = { viewModel.selectApp(app) })
+                            SlidableAppItemCard(
+                                app = app,
+                                onClick = { viewModel.selectApp(app) },
+                                onOpen = {
+                                    val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                                    if (launchIntent != null) {
+                                        context.startActivity(launchIntent)
+                                    } else {
+                                        Toast.makeText(context, "Esta app no tiene actividad principal", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onSettings = {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${app.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                },
+                                onUninstall = {
+                                    val intent = Intent(Intent.ACTION_DELETE).apply {
+                                        data = Uri.parse("package:${app.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            )
                         }
                     }
                 }
@@ -163,6 +209,105 @@ fun MainScreen(viewModel: MainViewModel) {
             AppDetailSheet(
                 app = selectedApp!!,
                 onDismiss = { viewModel.selectApp(null) }
+            )
+        }
+    }
+}
+
+@Composable
+fun SlidableAppItemCard(
+    app: AppInfo,
+    onClick: () -> Unit,
+    onOpen: () -> Unit,
+    onSettings: () -> Unit,
+    onUninstall: () -> Unit
+) {
+    var offsetX by remember { mutableStateOf(0f) }
+    val maxOffset = -180f // dp width of action buttons
+    val density = LocalDensity.current
+    val maxOffsetPx = with(density) { maxOffset.dp.toPx() }
+
+    val animatedOffset by animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "slidableOffset"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+    ) {
+        // Background Actions (Revealed on slide)
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                .padding(end = 12.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = {
+                offsetX = 0f
+                onOpen()
+            }) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Abrir",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = {
+                offsetX = 0f
+                onSettings()
+            }) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Ajustes",
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+            }
+            IconButton(onClick = {
+                offsetX = 0f
+                onUninstall()
+            }) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Desinstalar",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+
+        // Foreground Card (Slidable)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(animatedOffset.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount ->
+                            offsetX = (offsetX + dragAmount).coerceIn(maxOffsetPx, 0f)
+                        },
+                        onDragEnd = {
+                            if (offsetX < maxOffsetPx / 2f) {
+                                offsetX = maxOffsetPx
+                            } else {
+                                offsetX = 0f
+                            }
+                        }
+                    )
+                }
+        ) {
+            AppItemCard(
+                app = app,
+                onClick = {
+                    if (offsetX < 0f) {
+                        offsetX = 0f
+                    } else {
+                        onClick()
+                    }
+                }
             )
         }
     }
@@ -239,9 +384,15 @@ fun AppItemCard(app: AppInfo, onClick: () -> Unit) {
                     )
                 }
                 Text(
-                    text = "${app.packageName} • v${app.versionName} • $updateDateStr",
+                    text = "${app.packageName} • v${app.versionName}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                Text(
+                    text = "Actualizado: $updateDateStr",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     maxLines = 1
                 )
                 Spacer(modifier = Modifier.height(4.dp))
