@@ -30,7 +30,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedFilter = MutableStateFlow<LanguageType?>(null)
     val selectedFilter: StateFlow<LanguageType?> = _selectedFilter
 
-    private val _selectedAppTypeFilter = MutableStateFlow(AppTypeFilter.ALL)
+    private val _selectedAppTypeFilter = MutableStateFlow(AppTypeFilter.USER)
     val selectedAppTypeFilter: StateFlow<AppTypeFilter> = _selectedAppTypeFilter
 
     private val _selectedApp = MutableStateFlow<AppInfo?>(null)
@@ -85,6 +85,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectApp(app: AppInfo?) {
-        _selectedApp.value = app
+        if (app != null && !app.usesCredentialsApi && app.apkPath.isNotBlank()) {
+            _selectedApp.value = app
+            viewModelScope.launch {
+                val usesCredentials = repository.checkUsesCredentialsApi(app.apkPath)
+                if (usesCredentials) {
+                    _selectedApp.value = app.copy(usesCredentialsApi = true)
+                }
+            }
+        } else {
+            _selectedApp.value = app
+        }
     }
 }

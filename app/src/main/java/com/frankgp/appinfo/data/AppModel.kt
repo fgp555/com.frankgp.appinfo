@@ -21,5 +21,6 @@ data class AppInfo(
     val isSystemApp: Boolean,
     val apkPath: String,
     val firstInstallTime: Long,
-    val lastUpdateTime: Long
+    val lastUpdateTime: Long,
+    val usesCredentialsApi: Boolean
 )

@@ -13,8 +13,8 @@ android {
         applicationId = "com.frankgp.appinfo"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "26.10.2"
         /* 
         https://play.google.com/console/u/0/developers/9004578905216647982/app/4973761786136133435/tracks/internal-testing
         adb shell am start -a android.intent.action.VIEW -d "market://details?id=com.frankgp.appinfo" 

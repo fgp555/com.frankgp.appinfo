@@ -150,6 +150,58 @@ fun AppDetailSheet(
                 }
             }
 
+            // Google Play Quality Requirements (2026/2027)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Estándares de Calidad Google Play (2026/2027)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "🛡️ Zero-Tap Sign-In (Credentials API):",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = if (app.usesCredentialsApi) "Sí (Detectado)" else "No",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (app.usesCredentialsApi) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "⚡ Optimización R8 / DEX:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Código DEX Estructurado",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF1976D2)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Dates (Install & Update)
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
