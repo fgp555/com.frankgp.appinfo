@@ -69,7 +69,8 @@ class AppRepository(private val context: Context) {
                         isSystemApp = isSystemApp,
                         apkPath = appInfo.sourceDir ?: "",
                         firstInstallTime = firstInstallTime,
-                        lastUpdateTime = lastUpdateTime
+                        lastUpdateTime = lastUpdateTime,
+                        usesCredentialsApi = false
                     )
                 )
             } catch (e: Exception) {
@@ -78,6 +79,29 @@ class AppRepository(private val context: Context) {
         }
 
         appList.sortedBy { it.name.lowercase() }
+    }
+
+    suspend fun checkUsesCredentialsApi(apkPath: String): Boolean = withContext(Dispatchers.IO) {
+        if (apkPath.isBlank()) return@withContext false
+        try {
+            ZipFile(apkPath).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    val name = entry.name
+                    if (name.startsWith("classes") && name.endsWith(".dex")) {
+                        zip.getInputStream(entry).use { input ->
+                            val bytes = input.readBytes()
+                            val text = String(bytes, Charsets.ISO_8859_1)
+                            if (text.contains("androidx/credentials") || text.contains("CredentialManager")) {
+                                return@withContext true
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        false
     }
 
     private data class ApkAnalysis(
