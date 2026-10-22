@@ -3,8 +3,11 @@ package com.frankgp.appinfo.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.frankgp.appinfo.data.AppDetailsData
 import com.frankgp.appinfo.data.AppInfo
 import com.frankgp.appinfo.data.AppRepository
+import com.frankgp.appinfo.data.DeviceInfo
+import com.frankgp.appinfo.data.DeviceRepository
 import com.frankgp.appinfo.data.LanguageType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -13,12 +16,23 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+enum class MainTab {
+    DEVICE, APPS
+}
+
 enum class AppTypeFilter {
     ALL, USER, SYSTEM
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = AppRepository(application)
+    private val appRepository = AppRepository(application)
+    private val deviceRepository = DeviceRepository(application)
+
+    private val _currentTab = MutableStateFlow(MainTab.DEVICE)
+    val currentTab: StateFlow<MainTab> = _currentTab
+
+    private val _deviceInfo = MutableStateFlow<DeviceInfo?>(null)
+    val deviceInfo: StateFlow<DeviceInfo?> = _deviceInfo
 
     private val _allApps = MutableStateFlow<List<AppInfo>>(emptyList())
     private val _isLoading = MutableStateFlow(false)
@@ -36,6 +50,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedApp = MutableStateFlow<AppInfo?>(null)
     val selectedApp: StateFlow<AppInfo?> = _selectedApp
 
+    private val _detailsLoading = MutableStateFlow(false)
+    val detailsLoading: StateFlow<Boolean> = _detailsLoading
+
+    private val detailsCache = mutableMapOf<String, AppDetailsData>()
+
     val filteredApps: StateFlow<List<AppInfo>> = combine(
         _allApps,
         _searchQuery,
@@ -46,7 +65,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val matchesQuery = query.isBlank() ||
                     app.name.contains(query, ignoreCase = true) ||
                     app.packageName.contains(query, ignoreCase = true)
-            val matchesLang = langFilter == null || app.languageType == langFilter
+            val matchesLang = langFilter == null || (app.details != null && app.languageType == langFilter)
             val matchesAppType = when (appTypeFilter) {
                 AppTypeFilter.ALL -> true
                 AppTypeFilter.USER -> !app.isSystemApp
@@ -61,13 +80,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     init {
+        loadDeviceInfo()
         loadApps()
+    }
+
+    fun setTab(tab: MainTab) {
+        _currentTab.value = tab
+    }
+
+    fun loadDeviceInfo() {
+        viewModelScope.launch {
+            _deviceInfo.value = deviceRepository.getDeviceInfo()
+        }
     }
 
     fun loadApps() {
         viewModelScope.launch {
             _isLoading.value = true
-            _allApps.value = repository.getInstalledApps()
+            _allApps.value = appRepository.getInstalledApps()
             _isLoading.value = false
         }
     }
@@ -85,16 +115,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectApp(app: AppInfo?) {
-        if (app != null && !app.usesCredentialsApi && app.apkPath.isNotBlank()) {
-            _selectedApp.value = app
-            viewModelScope.launch {
-                val usesCredentials = repository.checkUsesCredentialsApi(app.apkPath)
-                if (usesCredentials) {
-                    _selectedApp.value = app.copy(usesCredentialsApi = true)
-                }
-            }
+        if (app == null) {
+            _selectedApp.value = null
+            _detailsLoading.value = false
+            return
+        }
+
+        val cachedDetails = detailsCache[app.packageName]
+        if (cachedDetails != null) {
+            _selectedApp.value = app.copy(details = cachedDetails)
+            _detailsLoading.value = false
         } else {
             _selectedApp.value = app
+            _detailsLoading.value = true
+            viewModelScope.launch {
+                val detailsData = appRepository.getAppDetails(app.packageName, app.apkPath)
+                detailsCache[app.packageName] = detailsData
+                if (_selectedApp.value?.packageName == app.packageName) {
+                    _selectedApp.value = app.copy(details = detailsData)
+                }
+                _detailsLoading.value = false
+            }
         }
     }
 }

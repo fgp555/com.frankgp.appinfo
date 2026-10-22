@@ -7,14 +7,11 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -30,8 +27,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import com.frankgp.appinfo.data.AppInfo
 import com.frankgp.appinfo.data.LanguageType
+import com.frankgp.appinfo.data.getAndroidVersionName
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,10 +40,12 @@ import java.util.Locale
 @Composable
 fun AppDetailSheet(
     app: AppInfo,
+    isDetailsLoading: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
+    val scrollState = rememberScrollState()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -52,6 +54,7 @@ fun AppDetailSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 16.dp)
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -112,9 +115,137 @@ fun AppDetailSheet(
                 }
             }
 
+            if (isDetailsLoading) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(4.dp)
+                )
+            }
+
+            // Quick Developer Action Buttons
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                    if (launchIntent != null) {
+                        Button(
+                            onClick = { context.startActivity(launchIntent) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Abrir App", maxLines = 1)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val packageName = app.packageName
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(webIntent)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Shop, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Play Store", maxLines = 1)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val apkFile = File(app.apkPath)
+                            if (apkFile.exists()) {
+                                try {
+                                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/vnd.android.package-archive"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Compartir APK de ${app.name}"))
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Error al compartir APK", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Compartir APK", maxLines = 1)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:${app.packageName}")
+                            }
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Ajustes App", maxLines = 1)
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val report = buildString {
+                            appendLine("📱 ${app.name}")
+                            appendLine("• Package: ${app.packageName}")
+                            appendLine("• Versión: ${app.versionName} (${app.versionCode})")
+                            appendLine("• Min SDK: API ${app.minSdkVersion} (${getAndroidVersionName(app.minSdkVersion)})")
+                            appendLine("• Target SDK: API ${app.targetSdkVersion} (${getAndroidVersionName(app.targetSdkVersion)})")
+                            appendLine("• Tamaño APK: %.1f MB".format(app.apkSizeMb))
+                            appendLine("• Tipo: ${if (app.isSplitApk) "Split APKs (Dynamic)" else "APK Monolítico"}")
+                            appendLine("• Compilación: ${if (app.isDebuggable) "DEBUG" else "RELEASE"}")
+                            appendLine("• UID: ${app.uid}")
+                            appendLine("• SHA-1: ${app.sha1Fingerprint}")
+                            appendLine("• SHA-256: ${app.sha256Fingerprint}")
+                            appendLine("• Lenguaje/Framework: ${app.languageType.displayName} ${app.framework?.let { "($it)" } ?: ""}")
+                            appendLine("• Arquitecturas: ${app.architectures.joinToString(", ")}")
+                            appendLine("• Componentes: ${app.activitiesCount} Activities (${app.exportedActivitiesCount} exp), ${app.servicesCount} Services, ${app.receiversCount} Receivers, ${app.providersCount} Providers")
+                            if (app.detectedSdks.isNotEmpty()) {
+                                appendLine("• SDKs Detectados: ${app.detectedSdks.joinToString(", ")}")
+                            }
+                            if (app.dangerousPermissions.isNotEmpty()) {
+                                appendLine("• Permisos Sensibles: ${app.dangerousPermissions.joinToString(", ")}")
+                            }
+                        }
+                        clipboardManager.setText(AnnotatedString(report))
+                        Toast.makeText(context, "Informe técnico copiado al portapapeles", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Copiar Informe Técnico Completo")
+                }
+            }
+
             HorizontalDivider()
 
-            // Package Name with Copy Button
+            // Package Name & Basic Details
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Package Name",
@@ -150,7 +281,75 @@ fun AppDetailSheet(
                 }
             }
 
-            // Google Play Quality Requirements (2026/2027)
+            // 1. Compatibilidad de SDK / Android
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Compatibilidad de SDK / Android",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "• Min SDK (Mínimo):",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "API ${app.minSdkVersion} (${getAndroidVersionName(app.minSdkVersion)})",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "• Target SDK (Objetivo):",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "API ${app.targetSdkVersion} (${getAndroidVersionName(app.targetSdkVersion)})",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "• Max SDK (Máximo):",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Sin límite (Android 16+)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Estándares de Calidad Google Play (2026/2027)
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Estándares de Calidad Google Play (2026/2027)",
@@ -202,7 +401,7 @@ fun AppDetailSheet(
                 }
             }
 
-            // Dates (Install & Update)
+            // 3. Fechas de Instalación y Actualización
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Fechas de Instalación y Actualización",
@@ -233,7 +432,239 @@ fun AppDetailSheet(
                 }
             }
 
-            // Language Type Badge & Framework
+            // 4. Tamaño y Estructura del APK
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "📦 Tamaño y Estructura del APK",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Tamaño del APK:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("%.1f MB".format(app.apkSizeMb), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Estructura APK:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (app.isSplitApk) "Split APKs (Dynamic Delivery)" else "APK Monolítico",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (app.isSplitApk) Color(0xFF1976D2) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "• Data Dir: ${app.dataDir}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            // 5. Permisos y Seguridad
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "🛡️ Permisos y Seguridad",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Modo de Compilación:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = if (app.isDebuggable) "DEBUGGABLE (Debug)" else "RELEASE",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (app.isDebuggable) Color(0xFFD32F2F) else Color(0xFF2E7D32)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• UID de Proceso:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${app.uid}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Total Permisos Declarados:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${app.permissionsCount}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Text(
+                            text = "• Firma SHA-1:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = app.sha1Fingerprint,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "• Firma SHA-256:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = app.sha256Fingerprint,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (app.dangerousPermissions.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Permisos Sensibles / Peligrosos (${app.dangerousPermissions.size}):",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                app.dangerousPermissions.forEach { perm ->
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text(perm, style = MaterialTheme.typography.labelSmall) },
+                                        colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f))
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. Componentes del Manifest
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "🧩 Componentes del Manifest",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Activities (Pantallas):", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${app.activitiesCount} (${app.exportedActivitiesCount} exportadas)", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Services (Servicios):", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${app.servicesCount}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Broadcast Receivers:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${app.receiversCount}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("• Content Providers:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${app.providersCount}", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        val launcher = app.launcherActivity
+                        if (launcher != null) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("• Launcher Activity:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = launcher,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 7. SDKs y Librerías Detectadas
+            if (app.detectedSdks.isNotEmpty()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "⚡ SDKs y Librerías Detectadas",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        app.detectedSdks.forEach { sdk ->
+                            AssistChip(
+                                onClick = {},
+                                label = { Text(sdk) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 8. Lenguaje Type Badge & Framework
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Lenguaje y Framework Detectado",
@@ -284,7 +715,7 @@ fun AppDetailSheet(
                 }
             }
 
-            // Supported Architectures
+            // 9. Supported Architectures
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Arquitecturas Soportadas",
@@ -312,12 +743,8 @@ fun AppDetailSheet(
                 }
             }
 
-            // Native Libraries (.so)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 200.dp)
-            ) {
+            // 10. Native Libraries (.so)
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Librerías Nativas (.so) — ${app.nativeLibraries.size}",
                     style = MaterialTheme.typography.labelMedium,
@@ -335,13 +762,13 @@ fun AppDetailSheet(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
-                        LazyColumn(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(8.dp),
+                                .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            items(app.nativeLibraries) { lib ->
+                            app.nativeLibraries.forEach { lib ->
                                 Text(
                                     text = "• $lib",
                                     style = MaterialTheme.typography.bodySmall,
@@ -351,25 +778,6 @@ fun AppDetailSheet(
                         }
                     }
                 }
-            }
-
-            // Open Settings Button
-            Button(
-                onClick = {
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.parse("package:${app.packageName}")
-                    }
-                    context.startActivity(intent)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Abrir Ajustes de la App")
             }
 
             Spacer(modifier = Modifier.height(8.dp))

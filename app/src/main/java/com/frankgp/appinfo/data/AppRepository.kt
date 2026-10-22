@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 class AppRepository(private val context: Context) {
@@ -14,7 +16,7 @@ class AppRepository(private val context: Context) {
         val pm = context.packageManager
         val flags = PackageManager.GET_META_DATA
         val applications = pm.getInstalledApplications(flags)
-        
+
         val appList = mutableListOf<AppInfo>()
 
         for (appInfo in applications) {
@@ -53,7 +55,15 @@ class AppRepository(private val context: Context) {
                     null
                 }
 
-                val analysis = analyzeApk(context, appInfo)
+                val apkFile = appInfo.sourceDir?.let { File(it) }
+                val apkSizeMb = if (apkFile != null && apkFile.exists()) {
+                    apkFile.length() / (1024.0 * 1024.0)
+                } else {
+                    0.0
+                }
+
+                val minSdkVersion = appInfo.minSdkVersion
+                val targetSdkVersion = appInfo.targetSdkVersion
 
                 appList.add(
                     AppInfo(
@@ -62,15 +72,14 @@ class AppRepository(private val context: Context) {
                         versionName = versionName,
                         versionCode = versionCode,
                         icon = icon,
-                        languageType = analysis.languageType,
-                        framework = analysis.framework,
-                        architectures = analysis.architectures,
-                        nativeLibraries = analysis.nativeLibraries,
                         isSystemApp = isSystemApp,
                         apkPath = appInfo.sourceDir ?: "",
                         firstInstallTime = firstInstallTime,
                         lastUpdateTime = lastUpdateTime,
-                        usesCredentialsApi = false
+                        minSdkVersion = minSdkVersion,
+                        targetSdkVersion = targetSdkVersion,
+                        apkSizeMb = apkSizeMb,
+                        details = null
                     )
                 )
             } catch (e: Exception) {
@@ -81,8 +90,56 @@ class AppRepository(private val context: Context) {
         appList.sortedBy { it.name.lowercase() }
     }
 
-    suspend fun checkUsesCredentialsApi(apkPath: String): Boolean = withContext(Dispatchers.IO) {
-        if (apkPath.isBlank()) return@withContext false
+    suspend fun getAppDetails(packageName: String, apkPath: String): AppDetailsData = withContext(Dispatchers.IO) {
+        val pm = context.packageManager
+        val appInfo = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong()))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            }
+        } catch (_: Exception) {
+            return@withContext AppDetailsData()
+        }
+
+        val isDebuggable = (appInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val uid = appInfo.uid
+        val dataDir = appInfo.dataDir ?: ""
+        val isSplitApk = !appInfo.splitSourceDirs.isNullOrEmpty()
+
+        val fingerprints = getSigningFingerprints(context, packageName)
+        val permissionData = getPermissionData(context, packageName)
+        val componentData = getComponentData(context, packageName)
+        val analysis = analyzeApk(context, appInfo)
+        val usesCredentialsApi = checkUsesCredentialsApi(apkPath)
+
+        AppDetailsData(
+            languageType = analysis.languageType,
+            framework = analysis.framework,
+            architectures = analysis.architectures,
+            nativeLibraries = analysis.nativeLibraries,
+            sha1Fingerprint = fingerprints.sha1,
+            sha256Fingerprint = fingerprints.sha256,
+            permissionsCount = permissionData.totalPermissions,
+            dangerousPermissions = permissionData.dangerousPermissions,
+            activitiesCount = componentData.activitiesCount,
+            exportedActivitiesCount = componentData.exportedActivitiesCount,
+            servicesCount = componentData.servicesCount,
+            receiversCount = componentData.receiversCount,
+            providersCount = componentData.providersCount,
+            launcherActivity = componentData.launcherActivity,
+            detectedSdks = analysis.detectedSdks,
+            isSplitApk = isSplitApk,
+            isDebuggable = isDebuggable,
+            uid = uid,
+            dataDir = dataDir,
+            usesCredentialsApi = usesCredentialsApi
+        )
+    }
+
+    private fun checkUsesCredentialsApi(apkPath: String): Boolean {
+        if (apkPath.isBlank()) return false
         try {
             ZipFile(apkPath).use { zip ->
                 val entries = zip.entries()
@@ -94,21 +151,152 @@ class AppRepository(private val context: Context) {
                             val bytes = input.readBytes()
                             val text = String(bytes, Charsets.ISO_8859_1)
                             if (text.contains("androidx/credentials") || text.contains("CredentialManager")) {
-                                return@withContext true
+                                return true
                             }
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
-        false
+        return false
+    }
+
+    private data class SigningFingerprints(val sha1: String, val sha256: String)
+
+    private fun getSigningFingerprints(context: Context, packageName: String): SigningFingerprints {
+        return try {
+            val pm = context.packageManager
+            val pkgInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+            }
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pkgInfo.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                pkgInfo.signatures
+            }
+            if (!signatures.isNullOrEmpty()) {
+                val cert = signatures[0].toByteArray()
+
+                val mdSha1 = MessageDigest.getInstance("SHA-1")
+                val sha1Str = mdSha1.digest(cert).joinToString(":") { "%02X".format(it) }
+
+                val mdSha256 = MessageDigest.getInstance("SHA-256")
+                val sha256Str = mdSha256.digest(cert).joinToString(":") { "%02X".format(it) }
+
+                SigningFingerprints(sha1Str, sha256Str)
+            } else {
+                SigningFingerprints("No disponible", "No disponible")
+            }
+        } catch (_: Exception) {
+            SigningFingerprints("No disponible", "No disponible")
+        }
+    }
+
+    private data class PermissionData(
+        val totalPermissions: Int,
+        val dangerousPermissions: List<String>
+    )
+
+    private fun getPermissionData(context: Context, packageName: String): PermissionData {
+        var total = 0
+        val dangerousList = mutableListOf<String>()
+        try {
+            val pm = context.packageManager
+            val pkgInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+            }
+            val requested = pkgInfo.requestedPermissions
+            if (requested != null) {
+                total = requested.size
+                for (perm in requested) {
+                    val shortName = perm.substringAfterLast(".")
+                    try {
+                        val pInfo = pm.getPermissionInfo(perm, 0)
+                        val isDangerous = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            pInfo.protection == android.content.pm.PermissionInfo.PROTECTION_DANGEROUS
+                        } else {
+                            @Suppress("DEPRECATION")
+                            (pInfo.protectionLevel and android.content.pm.PermissionInfo.PROTECTION_DANGEROUS) != 0
+                        }
+                        if (isDangerous) {
+                            dangerousList.add(shortName)
+                        }
+                    } catch (_: Exception) {
+                        val lower = perm.lowercase()
+                        if (lower.contains("camera") || lower.contains("location") || lower.contains("audio") ||
+                            lower.contains("storage") || lower.contains("contacts") || lower.contains("sms") ||
+                            lower.contains("bluetooth")
+                        ) {
+                            dangerousList.add(shortName)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return PermissionData(total, dangerousList.distinct().sorted())
+    }
+
+    private data class ComponentData(
+        val activitiesCount: Int,
+        val exportedActivitiesCount: Int,
+        val servicesCount: Int,
+        val receiversCount: Int,
+        val providersCount: Int,
+        val launcherActivity: String?
+    )
+
+    private fun getComponentData(context: Context, packageName: String): ComponentData {
+        var activities = 0
+        var exportedActivities = 0
+        var services = 0
+        var receivers = 0
+        var providers = 0
+        var launcher: String? = null
+
+        try {
+            val pm = context.packageManager
+            launcher = pm.getLaunchIntentForPackage(packageName)?.component?.className
+
+            val flags = (PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS).toLong()
+            val pkgInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(flags))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(packageName, flags.toInt())
+            }
+
+            pkgInfo.activities?.let {
+                activities = it.size
+                exportedActivities = it.count { act -> act.exported }
+            }
+            pkgInfo.services?.let { services = it.size }
+            pkgInfo.receivers?.let { receivers = it.size }
+            pkgInfo.providers?.let { providers = it.size }
+        } catch (_: Exception) {}
+
+        return ComponentData(
+            activitiesCount = activities,
+            exportedActivitiesCount = exportedActivities,
+            servicesCount = services,
+            receiversCount = receivers,
+            providersCount = providers,
+            launcherActivity = launcher
+        )
     }
 
     private data class ApkAnalysis(
         val languageType: LanguageType,
         val framework: String?,
         val architectures: List<String>,
-        val nativeLibraries: List<String>
+        val nativeLibraries: List<String>,
+        val detectedSdks: List<String>
     )
 
     private fun analyzeApk(context: Context, appInfo: ApplicationInfo): ApkAnalysis {
@@ -119,6 +307,7 @@ class AppRepository(private val context: Context) {
         val nativeLibs = mutableSetOf<String>()
         val architectures = mutableSetOf<String>()
         val zipEntryNames = mutableSetOf<String>()
+        val detectedSdks = mutableSetOf<String>()
         var hasDex = false
         var hasNativeActivity = false
 
@@ -147,6 +336,23 @@ class AppRepository(private val context: Context) {
                         zipEntryNames.add(name)
                         if (name.startsWith("classes") && name.endsWith(".dex")) {
                             hasDex = true
+                            try {
+                                zip.getInputStream(entry).use { input ->
+                                    val bytes = input.readBytes()
+                                    val text = String(bytes, Charsets.ISO_8859_1)
+                                    if (text.contains("androidx/compose")) detectedSdks.add("Jetpack Compose")
+                                    if (text.contains("dagger/hilt") || text.contains("dagger/internal")) detectedSdks.add("Hilt / Dagger")
+                                    if (text.contains("org/koin")) detectedSdks.add("Koin")
+                                    if (text.contains("retrofit2")) detectedSdks.add("Retrofit")
+                                    if (text.contains("okhttp3")) detectedSdks.add("OkHttp")
+                                    if (text.contains("androidx/room")) detectedSdks.add("Room")
+                                    if (text.contains("com/google/firebase")) detectedSdks.add("Firebase")
+                                    if (text.contains("com/bumptech/glide")) detectedSdks.add("Glide")
+                                    if (text.contains("coil")) detectedSdks.add("Coil")
+                                    if (text.contains("com/facebook")) detectedSdks.add("Facebook SDK")
+                                    if (text.contains("com/google/android/gms")) detectedSdks.add("Google Play Services")
+                                }
+                            } catch (_: Exception) {}
                         }
                         if (name.startsWith("lib/")) {
                             val parts = name.split("/")
@@ -166,7 +372,6 @@ class AppRepository(private val context: Context) {
 
         val framework = detectFramework(nativeLibs, zipEntryNames)
 
-        // Filter out standard AndroidX / Google / Chromium / SQLite infra libraries from counting as "custom native code"
         val customNativeLibs = nativeLibs.filter { lib ->
             val lower = lib.lowercase()
             !lower.contains("androidx") &&
@@ -207,7 +412,8 @@ class AppRepository(private val context: Context) {
             languageType = languageType,
             framework = framework,
             architectures = if (formattedArchitectures.isEmpty()) listOf("Independiente (Dalvik/ART)") else formattedArchitectures,
-            nativeLibraries = nativeLibs.sorted()
+            nativeLibraries = nativeLibs.sorted(),
+            detectedSdks = detectedSdks.sorted()
         )
     }
 
