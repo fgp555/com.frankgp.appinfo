@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -57,6 +58,9 @@ fun MainScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val currentTab by viewModel.currentTab.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
+    val isPerformanceServiceRunning by viewModel.isPerformanceServiceRunning.collectAsState()
+    val realtimePerformanceData by viewModel.realtimePerformanceData.collectAsState()
+    val speedTestResult by viewModel.speedTestResult.collectAsState()
     val apps by viewModel.filteredApps.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val isDetailsLoading by viewModel.detailsLoading.collectAsState()
@@ -123,6 +127,12 @@ fun MainScreen(viewModel: MainViewModel) {
                     icon = { Icon(Icons.Default.Apps, contentDescription = "Aplicaciones") },
                     label = { Text("Aplicaciones") }
                 )
+                NavigationBarItem(
+                    selected = currentTab == MainTab.PERFORMANCE,
+                    onClick = { viewModel.setTab(MainTab.PERFORMANCE) },
+                    icon = { Icon(Icons.Default.Speed, contentDescription = "Monitor") },
+                    label = { Text("Monitor") }
+                )
             }
         }
     ) { innerPadding ->
@@ -132,6 +142,15 @@ fun MainScreen(viewModel: MainViewModel) {
                     deviceInfo = deviceInfo,
                     isLoading = isLoading,
                     onRefresh = { viewModel.loadDeviceInfo() },
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
+            MainTab.PERFORMANCE -> {
+                PerformanceScreen(
+                    performanceData = realtimePerformanceData,
+                    isServiceRunning = isPerformanceServiceRunning,
+                    speedTestResult = speedTestResult,
+                    onRunSpeedTest = { viewModel.runSpeedTest() },
                     modifier = Modifier.padding(innerPadding)
                 )
             }

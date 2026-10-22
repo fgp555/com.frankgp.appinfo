@@ -9,15 +9,23 @@ import com.frankgp.appinfo.data.AppRepository
 import com.frankgp.appinfo.data.DeviceInfo
 import com.frankgp.appinfo.data.DeviceRepository
 import com.frankgp.appinfo.data.LanguageType
+import com.frankgp.appinfo.data.PerformanceData
+import com.frankgp.appinfo.data.PerformanceRepository
+import com.frankgp.appinfo.data.SpeedTestRepository
+import com.frankgp.appinfo.data.SpeedTestResult
+import com.frankgp.appinfo.service.PerformanceService
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class MainTab {
-    DEVICE, APPS
+    DEVICE, APPS, PERFORMANCE
 }
 
 enum class AppTypeFilter {
@@ -27,12 +35,26 @@ enum class AppTypeFilter {
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appRepository = AppRepository(application)
     private val deviceRepository = DeviceRepository(application)
+    private val performanceRepository = PerformanceRepository(application)
+    private val speedTestRepository = SpeedTestRepository()
 
     private val _currentTab = MutableStateFlow(MainTab.DEVICE)
     val currentTab: StateFlow<MainTab> = _currentTab
 
     private val _deviceInfo = MutableStateFlow<DeviceInfo?>(null)
     val deviceInfo: StateFlow<DeviceInfo?> = _deviceInfo
+
+    private val _realtimePerformanceData = MutableStateFlow(PerformanceData())
+    val realtimePerformanceData: StateFlow<PerformanceData> = _realtimePerformanceData
+
+    private val _speedTestResult = MutableStateFlow(SpeedTestResult())
+    val speedTestResult: StateFlow<SpeedTestResult> = _speedTestResult
+
+    private var speedTestJob: Job? = null
+
+    val isPerformanceServiceRunning: StateFlow<Boolean> = PerformanceService.isServiceRunning
+
+    private var performanceJob: Job? = null
 
     private val _allApps = MutableStateFlow<List<AppInfo>>(emptyList())
     private val _isLoading = MutableStateFlow(false)
@@ -86,6 +108,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTab(tab: MainTab) {
         _currentTab.value = tab
+        if (tab == MainTab.PERFORMANCE) {
+            startPerformanceMonitoring()
+        } else {
+            stopPerformanceMonitoring()
+        }
+    }
+
+    fun runSpeedTest() {
+        speedTestJob?.cancel()
+        speedTestJob = viewModelScope.launch {
+            speedTestRepository.runCloudflareSpeedTest().collect { result ->
+                _speedTestResult.value = result
+            }
+        }
+    }
+
+    private fun startPerformanceMonitoring() {
+        if (performanceJob?.isActive == true) return
+        performanceJob = viewModelScope.launch {
+            while (isActive) {
+                _realtimePerformanceData.value = performanceRepository.samplePerformance()
+                delay(1000)
+            }
+        }
+    }
+
+    private fun stopPerformanceMonitoring() {
+        performanceJob?.cancel()
+        performanceJob = null
     }
 
     fun loadDeviceInfo() {
