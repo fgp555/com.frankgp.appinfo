@@ -50,6 +50,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _speedTestResult = MutableStateFlow(SpeedTestResult())
     val speedTestResult: StateFlow<SpeedTestResult> = _speedTestResult
 
+    private val _selectedSpeedTestServer = MutableStateFlow("https://speed.cloudflare.com")
+    val selectedSpeedTestServer: StateFlow<String> = _selectedSpeedTestServer
+
     private var speedTestJob: Job? = null
 
     val isPerformanceServiceRunning: StateFlow<Boolean> = PerformanceService.isServiceRunning
@@ -115,10 +118,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun selectSpeedTestServer(url: String) {
+        _selectedSpeedTestServer.value = url
+    }
+
     fun runSpeedTest() {
         speedTestJob?.cancel()
         speedTestJob = viewModelScope.launch {
-            speedTestRepository.runCloudflareSpeedTest().collect { result ->
+            speedTestRepository.runSpeedTest(_selectedSpeedTestServer.value).collect { result ->
                 _speedTestResult.value = result
             }
         }

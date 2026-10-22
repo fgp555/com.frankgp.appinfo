@@ -1,6 +1,12 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.triplet.play)
+}
+
+play {
+    serviceAccountCredentials.set(file("E:/dev/android/play-service-account.json"))
+    track.set("internal")
 }
 
 android {
@@ -13,8 +19,8 @@ android {
         applicationId = "com.frankgp.appinfo"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
-        versionName = "26.10.2"
+        versionCode = 7
+        versionName = "26.10.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

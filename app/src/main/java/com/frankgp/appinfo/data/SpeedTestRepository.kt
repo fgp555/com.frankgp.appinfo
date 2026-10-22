@@ -11,29 +11,47 @@ import java.net.URL
 
 class SpeedTestRepository {
 
-    fun runCloudflareSpeedTest(): Flow<SpeedTestResult> = flow {
+    private val cloudflareServer = "https://speed.cloudflare.com"
+    private val goServer = "https://8080.frankgp.com"
+
+    fun runSpeedTest(preferredServerUrl: String = cloudflareServer): Flow<SpeedTestResult> = flow {
         var pingMs = 0L
         var downloadMbps = 0.0
         var uploadMbps = 0.0
+
+        val activeServer = if (preferredServerUrl.contains("8080.frankgp.com")) {
+            if (testServerReachability("$goServer/health")) goServer else cloudflareServer
+        } else {
+            cloudflareServer
+        }
+
+        val serverDisplayName = if (activeServer == goServer) {
+            "8080.frankgp.com (Servidor Go)"
+        } else {
+            "Cloudflare SpeedTest API"
+        }
 
         // Step 1: Ping / Latency Test
         emit(
             SpeedTestResult(
                 state = SpeedTestState.TESTING_PING,
                 statusText = "Midiendo Latencia (Ping)...",
+                serverName = serverDisplayName,
                 progressPercent = 0.1f
             )
         )
 
         try {
             val pingTimes = mutableListOf<Long>()
+            val pingUrl = if (activeServer == goServer) "$goServer/health" else "$cloudflareServer/__down?bytes=0"
             for (i in 1..3) {
                 val start = System.currentTimeMillis()
-                val url = URL("https://speed.cloudflare.com/__down?bytes=0")
+                val url = URL(pingUrl)
                 val conn = url.openConnection() as HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
                 conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
                 val code = conn.responseCode
                 val elapsed = System.currentTimeMillis() - start
                 conn.disconnect()
@@ -43,7 +61,7 @@ class SpeedTestRepository {
             }
             pingMs = if (pingTimes.isNotEmpty()) pingTimes.average().toLong() else 20L
         } catch (_: Exception) {
-            pingMs = 25L
+            pingMs = 0L
         }
 
         emit(
@@ -51,6 +69,7 @@ class SpeedTestRepository {
                 state = SpeedTestState.TESTING_DOWNLOAD,
                 pingMs = pingMs,
                 statusText = "Midiendo Velocidad de Bajada...",
+                serverName = serverDisplayName,
                 progressPercent = 0.3f
             )
         )
@@ -58,15 +77,21 @@ class SpeedTestRepository {
         // Step 2: Download Speed Test (10 MB)
         try {
             val totalTargetBytes = 10_000_000L
-            val url = URL("https://speed.cloudflare.com/__down?bytes=$totalTargetBytes")
+            val downloadUrl = if (activeServer == goServer) {
+                "$goServer/download?bytes=$totalTargetBytes"
+            } else {
+                "$cloudflareServer/__down?bytes=$totalTargetBytes"
+            }
+            val url = URL(downloadUrl)
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 5000
             conn.readTimeout = 8000
             conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
 
             val startDownloadTime = System.currentTimeMillis()
             var totalReadBytes = 0L
-            val buffer = ByteArray(16384) // 16 KB buffer
+            val buffer = ByteArray(16384)
             val input: InputStream = conn.inputStream
 
             var bytesRead: Int
@@ -83,18 +108,16 @@ class SpeedTestRepository {
                             pingMs = pingMs,
                             downloadMbps = downloadMbps,
                             progressPercent = prog,
+                            serverName = serverDisplayName,
                             statusText = "Midiendo Bajada: %.1f Mbps".format(downloadMbps)
                         )
                     )
                 }
-                // Cap download test at 6 seconds maximum
                 if (System.currentTimeMillis() - startDownloadTime > 6000) break
             }
             input.close()
             conn.disconnect()
-        } catch (_: Exception) {
-            if (downloadMbps == 0.0) downloadMbps = 15.0
-        }
+        } catch (_: Exception) {}
 
         // Step 3: Upload Speed Test
         emit(
@@ -103,18 +126,26 @@ class SpeedTestRepository {
                 pingMs = pingMs,
                 downloadMbps = downloadMbps,
                 statusText = "Midiendo Velocidad de Subida...",
+                serverName = serverDisplayName,
                 progressPercent = 0.7f
             )
         )
 
         try {
-            val uploadTargetBytes = 3_000_000 // 3 MB dummy payload
-            val url = URL("https://speed.cloudflare.com/__up")
+            val uploadTargetBytes = 3_000_000 // 3 MB payload
+            val uploadUrl = if (activeServer == goServer) {
+                "$goServer/upload"
+            } else {
+                "$cloudflareServer/__up"
+            }
+            val url = URL(uploadUrl)
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 5000
             conn.readTimeout = 8000
             conn.requestMethod = "POST"
             conn.doOutput = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            conn.setRequestProperty("Content-Type", "application/octet-stream")
             conn.setFixedLengthStreamingMode(uploadTargetBytes)
 
             val dummyBuffer = ByteArray(16384)
@@ -139,6 +170,7 @@ class SpeedTestRepository {
                             downloadMbps = downloadMbps,
                             uploadMbps = uploadMbps,
                             progressPercent = prog,
+                            serverName = serverDisplayName,
                             statusText = "Midiendo Subida: %.1f Mbps".format(uploadMbps)
                         )
                     )
@@ -148,9 +180,7 @@ class SpeedTestRepository {
             output.flush()
             output.close()
             conn.disconnect()
-        } catch (_: Exception) {
-            if (uploadMbps == 0.0) uploadMbps = 8.0
-        }
+        } catch (_: Exception) {}
 
         // Step 4: Completed
         emit(
@@ -160,8 +190,25 @@ class SpeedTestRepository {
                 downloadMbps = downloadMbps,
                 uploadMbps = uploadMbps,
                 progressPercent = 1.0f,
+                serverName = serverDisplayName,
                 statusText = "Prueba Completada"
             )
         )
     }.flowOn(Dispatchers.IO)
+
+    private fun testServerReachability(fullPingUrl: String): Boolean {
+        return try {
+            val url = URL(fullPingUrl)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            val code = conn.responseCode
+            conn.disconnect()
+            code == 200
+        } catch (_: Exception) {
+            false
+        }
+    }
 }

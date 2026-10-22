@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,29 +33,14 @@ import com.frankgp.appinfo.service.PerformanceService
 @Composable
 fun PerformanceScreen(
     performanceData: PerformanceData,
-    isServiceRunning: Boolean,
     speedTestResult: SpeedTestResult = SpeedTestResult(),
+    selectedServerUrl: String = "https://speed.cloudflare.com",
+    onSelectServerUrl: (String) -> Unit = {},
     onRunSpeedTest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
-
-    // Permission launcher for Android 13+ (POST_NOTIFICATIONS)
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            try {
-                PerformanceService.startService(context)
-                Toast.makeText(context, "Monitor en tiempo real iniciado", Toast.LENGTH_SHORT).show()
-            } catch (_: Exception) {
-                Toast.makeText(context, "Error al iniciar el servicio", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, "Se requiere permiso de notificación", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     Column(
         modifier = modifier
@@ -63,9 +49,13 @@ fun PerformanceScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Switch Tile Card
+        // Switch Tile Card (En Desarrollo)
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    Toast.makeText(context, "Funcionalidad en desarrollo 🛠️", Toast.LENGTH_SHORT).show()
+                },
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
             Row(
@@ -94,7 +84,7 @@ fun PerformanceScreen(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = if (isServiceRunning) "Servicio Activo en la barra superior" else "Inicia el monitor en la barra de estado",
+                            text = "Próximamente en barra de estado (En desarrollo 🛠️)",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -102,27 +92,10 @@ fun PerformanceScreen(
                 }
 
                 Switch(
-                    checked = isServiceRunning,
-                    onCheckedChange = { enable ->
-                        if (enable) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                            ) {
-                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                try {
-                                    PerformanceService.startService(context)
-                                    Toast.makeText(context, "Monitor en tiempo real iniciado", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error al iniciar servicio: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        } else {
-                            try {
-                                PerformanceService.stopService(context)
-                                Toast.makeText(context, "Monitor detenido", Toast.LENGTH_SHORT).show()
-                            } catch (_: Exception) {}
-                        }
+                    checked = false,
+                    enabled = false,
+                    onCheckedChange = {
+                        Toast.makeText(context, "Funcionalidad en desarrollo 🛠️", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -201,7 +174,7 @@ fun PerformanceScreen(
             }
         }
 
-        // Test de Velocidad (Cloudflare API)
+        // Test de Velocidad de Red
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -217,9 +190,35 @@ fun PerformanceScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.CloudQueue, contentDescription = null, tint = Color(0xFFF57C00), modifier = Modifier.size(22.dp))
-                    Text("Test de Velocidad (Cloudflare API)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Column {
+                        Text("Test de Velocidad de Red", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        if (speedTestResult.serverName.isNotBlank()) {
+                            Text(
+                                text = "Servidor Activo: ${speedTestResult.serverName}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
                 HorizontalDivider()
+
+                // Server Selection Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedServerUrl == "https://8080.frankgp.com",
+                        onClick = { onSelectServerUrl("https://8080.frankgp.com") },
+                        label = { Text("Servidor Go (8080)") }
+                    )
+                    FilterChip(
+                        selected = selectedServerUrl == "https://speed.cloudflare.com",
+                        onClick = { onSelectServerUrl("https://speed.cloudflare.com") },
+                        label = { Text("Cloudflare API") }
+                    )
+                }
 
                 if (speedTestResult.state != SpeedTestState.IDLE) {
                     Text(
@@ -284,7 +283,7 @@ fun PerformanceScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isTesting) "Midiendo..." else "🚀 Iniciar Test de Velocidad Cloudflare")
+                    Text(if (isTesting) "Midiendo..." else "🚀 Iniciar Test de Velocidad")
                 }
             }
         }

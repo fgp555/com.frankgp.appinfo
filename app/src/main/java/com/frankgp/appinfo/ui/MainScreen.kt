@@ -58,9 +58,9 @@ fun MainScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val currentTab by viewModel.currentTab.collectAsState()
     val deviceInfo by viewModel.deviceInfo.collectAsState()
-    val isPerformanceServiceRunning by viewModel.isPerformanceServiceRunning.collectAsState()
     val realtimePerformanceData by viewModel.realtimePerformanceData.collectAsState()
     val speedTestResult by viewModel.speedTestResult.collectAsState()
+    val selectedSpeedTestServer by viewModel.selectedSpeedTestServer.collectAsState()
     val apps by viewModel.filteredApps.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val isDetailsLoading by viewModel.detailsLoading.collectAsState()
@@ -148,8 +148,9 @@ fun MainScreen(viewModel: MainViewModel) {
             MainTab.PERFORMANCE -> {
                 PerformanceScreen(
                     performanceData = realtimePerformanceData,
-                    isServiceRunning = isPerformanceServiceRunning,
                     speedTestResult = speedTestResult,
+                    selectedServerUrl = selectedSpeedTestServer,
+                    onSelectServerUrl = { viewModel.selectSpeedTestServer(it) },
                     onRunSpeedTest = { viewModel.runSpeedTest() },
                     modifier = Modifier.padding(innerPadding)
                 )

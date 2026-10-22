@@ -42,21 +42,22 @@ Esta guía resume el significado de los botones de la barra superior de Android 
 
 ---
 
-### 🚀 ¿Cómo ejecutar `./gradlew installRelease` en Android Studio?
+### 🚀 ¿Cómo ejecutar y generar archivos de Release en Android Studio?
 
-Por defecto, el botón 🟢 **Run** ejecuta la variante de compilación `debug` (`installDebug`). Para ejecutar `installRelease` directamente en Android Studio existen 2 métodos:
+#### A) Instalación directa (`installRelease`):
+1. Cambia la variante activa en la pestaña lateral **Build Variants** de `debug` a `release`.
+2. Presiona el botón 🟢 **Run (Play verde)**.
 
-1. **Vía la pestaña "Build Variants" (Barra Lateral Izquierda - Método Principal):**
-   * Abre la pestaña lateral **Build Variants** (esquina inferior izquierda de Android Studio).
-   * En la columna **Active Build Variant** para el módulo `:app`, cambia de `debug` a `release`.
-   * Al presionar ahora el botón 🟢 **Run (Play verde)**, Android Studio ejecutará automáticamente `./gradlew installRelease` e instalará la versión Release firmada en tu dispositivo.
+#### B) Generar el archivo AAB para Google Play Store (`bundleRelease`):
+1. **Comando Terminal:** `./gradlew :app:bundleRelease`
+2. **Desde Panel Gradle:** `app > Tasks > build > bundle` (o `bundleRelease`).
+3. **Desde Menú:** `Build > Generate Signed Bundle / APK... > Android App Bundle`.
 
-2. **Vía la ventana "Gradle" (Barra Lateral Derecha):**
-   * **Para abrir el panel de Gradle:** Menú superior `View > Tool Windows > Gradle`.
-   * **Para mostrar la lista de tareas en el panel de Gradle:**
-     * Opción A: Haz clic directamente en el texto azul **`Task list not built...`** en la parte superior del panel Gradle.
-     * Opción B: Menú `File > Settings > Experimental` y desmarcar *"Do not build Gradle task list during Gradle sync"*.
-   * Una vez activado y sincronizado, navega a: `FGP App Info > app > Tasks > install > installRelease`.
+📁 **Ruta del archivo `.aab` generado:**
+`E:\dev\kotlin\com.frankgp.appinfo\app\build\outputs\bundle\release\app-release.aab`
+
+📁 **Ruta del archivo `.apk` Release generado:**
+`E:\dev\kotlin\com.frankgp.appinfo\app\build\outputs\apk\release\app-release.apk`
 
 ---
 

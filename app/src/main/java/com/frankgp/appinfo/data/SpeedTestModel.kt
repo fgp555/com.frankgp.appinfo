@@ -16,5 +16,6 @@ data class SpeedTestResult(
     val uploadMbps: Double = 0.0,
     val progressPercent: Float = 0f,
     val statusText: String = "Listo para probar",
+    val serverName: String = "Servidor no probado",
     val errorMessage: String? = null
 )

@@ -1,0 +1,39 @@
+### 1. Ping / Latency Test
+GET https://8080.frankgp.com/ping
+
+### 2. Health Check Status
+GET https://8080.frankgp.com/health
+
+### 3. Download Speed Test (10 MB)
+GET https://8080.frankgp.com/download?bytes=10000000
+
+### 4. Download Speed Test Small (1 MB)
+GET https://8080.frankgp.com/download?bytes=1000000
+
+### 5. Upload Speed Test (POST dummy payload)
+POST https://8080.frankgp.com/upload
+Content-Type: application/octet-stream
+
+This is a test payload for measuring upload bandwidth on the Go speedtest server.
+
+### 6. CORS Options Preflight Check
+OPTIONS https://8080.frankgp.com/ping
+
+---
+
+### Local Server Testing (http://localhost:8080)
+
+### Local Ping
+GET http://localhost:8080/ping
+
+### Local Health Check
+GET http://localhost:8080/health
+
+### Local Download
+GET http://localhost:8080/download?bytes=1000000
+
+### Local Upload
+POST http://localhost:8080/upload
+Content-Type: application/octet-stream
+
+Testing local upload bandwidth to Go speedtest server.
