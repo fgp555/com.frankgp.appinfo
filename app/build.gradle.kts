@@ -4,8 +4,16 @@ plugins {
     alias(libs.plugins.triplet.play)
 }
 
+// play {
+//     serviceAccountCredentials.set(file("E:/dev/android/play-service-account.json"))
+//     track.set("internal")
+// }
+
 play {
-    serviceAccountCredentials.set(file("E:/dev/android/play-service-account.json"))
+    val localCredentials = file("play-service-account.json")
+    serviceAccountCredentials.set(
+        if (localCredentials.exists()) localCredentials else file("E:/dev/android/play-service-account.json")
+    )
     track.set("internal")
 }
 
@@ -19,23 +27,44 @@ android {
         applicationId = "com.frankgp.appinfo"
         minSdk = 24
         targetSdk = 37
-        versionCode = 7
-        versionName = "26.10.7"
+        versionCode = 13
+        versionName = "26.10.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
+    // defaultConfig {
+    //     applicationId = "com.frankgp.appinfo"
+    //     minSdk = 24
+    //     targetSdk = 37
+    //     versionCode = providers.gradleProperty("versionCode").map { it.toInt() }.getOrElse(13)
+    //     versionName = "26.10.13"
+    //     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    // }
 
     /* 
     https://play.google.com/console/u/0/developers/9004578905216647982/app/4973761786136133435/tracks/internal-testing
     adb shell am start -a android.intent.action.VIEW -d "market://details?id=com.frankgp.appinfo" 
     */
 
+    // signingConfigs {
+    //     create("release") {
+    //         storeFile = file("E:/dev/android/release.keystore")
+    //         storePassword = "android"
+    //         keyAlias = "androiddebugkey"
+    //         keyPassword = "android"
+    //     }
+    // }
+
+    // C:/Users/Frank/.gradle/gradle.properties
+
     signingConfigs {
         create("release") {
-            storeFile = file("E:/dev/android/release.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            val localKeystore = file("release.keystore")
+            storeFile = if (localKeystore.exists()) localKeystore else file("E:/dev/android/release.keystore")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: providers.gradleProperty("KEYSTORE_PASSWORD").orNull
+            keyAlias = System.getenv("KEY_ALIAS") ?: providers.gradleProperty("KEY_ALIAS").orNull
+            keyPassword = System.getenv("KEY_PASSWORD") ?: providers.gradleProperty("KEY_PASSWORD").orNull
         }
     }
 
@@ -43,7 +72,7 @@ android {
         release {
             signingConfig = signingConfigs.getByName("release")
             optimization {
-                enable = false
+                enable = true
             }
         }
     }
